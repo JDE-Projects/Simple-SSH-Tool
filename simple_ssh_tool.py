@@ -32,6 +32,19 @@ AUTHOR_URL = "https://github.com/JDE-Projects"
 MAX_CONNECTIONS = 5   # how many devices can be connected at once
 MAX_PINNED = 10       # how many commands can be pinned as quick buttons
 
+# Strip ANSI escape sequences (colors, cursor moves) from command output.
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def clean_output_line(s):
+    """Remove ANSI codes and collapse carriage-return progress spam to its
+    final state (so 'Reading... 0%\\rReading... Done' shows just 'Done')."""
+    s = ANSI_RE.sub("", s)
+    if "\r" in s:
+        parts = [p for p in s.split("\r") if p.strip()]
+        s = parts[-1] if parts else ""
+    return s
+
 
 # ----------------------------------------------------------------------------
 # Paths
@@ -338,13 +351,17 @@ class Api:
         if not raw_cmd:
             return {"ok": False, "error": "Empty command."}
         label = label or "Custom command"
-        # Honour the sudo toggle. If the command already starts with sudo, don't
-        # double it; just feed the password through our prefix.
+        # Honour the sudo toggle.
         if use_sudo:
             if raw_cmd.startswith("sudo "):
+                # User invoked sudo themselves (keeps their own flags such as
+                # -i / -u); just feed the password through our prefix.
                 cmd = raw_cmd.replace("sudo ", f"{sess.sudo_prefix()} ", 1)
             else:
-                cmd = f"{sess.sudo_prefix()} {raw_cmd}"
+                # Run the whole line as root via a root shell, so &&, ;, and |
+                # all stay elevated (not just the first command).
+                inner = raw_cmd.replace("'", "'\\''")
+                cmd = f"{sess.sudo_prefix()} bash -c '{inner}'"
             feed = True
         else:
             cmd = raw_cmd
@@ -402,7 +419,9 @@ class Api:
             for line in iter(stdout.readline, ""):
                 if line == "":
                     break
-                clean = line.rstrip("\n")
+                clean = clean_output_line(line.rstrip("\n"))
+                if not clean.strip():
+                    continue
                 if not is_safe(clean):
                     continue
                 self._log(device_id, clean, "out")
@@ -412,7 +431,8 @@ class Api:
 
             if err:
                 for ln in err.splitlines():
-                    if not is_safe(ln):
+                    ln = clean_output_line(ln)
+                    if not ln.strip() or not is_safe(ln):
                         continue
                     self._log(device_id, ln, "err")
 
@@ -438,6 +458,16 @@ class Api:
 # ----------------------------------------------------------------------------
 
 def main():
+    # Make Windows show this app's own taskbar icon instead of the generic one.
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "JDEProjects.SimpleSSHTool"
+            )
+    except Exception:
+        pass
+
     # pyi_splash exists only inside the onefile frozen build; ignore otherwise.
     try:
         import pyi_splash  # type: ignore
