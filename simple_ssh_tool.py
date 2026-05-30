@@ -73,12 +73,7 @@ DEVICES_FILE = os.path.join(app_dir(), "devices.json")
 # Default devices (first run only). Passwords never stored.
 # ----------------------------------------------------------------------------
 
-DEFAULT_DEVICES = [
-    {"id": "dev1", "name": "UBUNTU-SERVER",
-     "host": "10.0.50.2", "username": "john", "commands": []},
-    {"id": "dev2", "name": "Networkpi5",
-     "host": "10.0.0.4", "username": "john", "commands": []},
-]
+DEFAULT_DEVICES = []  # ship build: no built-in devices, users add their own
 
 
 def _normalize_command(c):
