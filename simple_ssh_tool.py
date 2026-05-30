@@ -32,17 +32,32 @@ AUTHOR_URL = "https://github.com/JDE-Projects"
 MAX_CONNECTIONS = 5   # how many devices can be connected at once
 MAX_PINNED = 10       # how many commands can be pinned as quick buttons
 
-# Strip ANSI escape sequences (colors, cursor moves) from command output.
-ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# Strip terminal escape sequences from command output. Covers colours and
+# cursor moves (CSI, ESC[...]) plus the cursor save/restore codes (ESC 7 /
+# ESC 8) that dpkg's "fancy" progress uses, and window-title (OSC) codes.
+ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"            # CSI: colours, cursor moves
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"    # OSC: window titles, etc.
+    r"|\x1b[ -/]*[0-~]"                      # 2/3-char escapes incl. ESC 7 / ESC 8
+)
+
+# Leftover dpkg progress lines once the escapes are stripped.
+_PROGRESS_RE = re.compile(r"^Progress: \[\s*\d+%\]$")
+_BAR_RE = re.compile(r"^\[[#.\s]*\]$")
 
 
 def clean_output_line(s):
-    """Remove ANSI codes and collapse carriage-return progress spam to its
-    final state (so 'Reading... 0%\\rReading... Done' shows just 'Done')."""
+    """Remove escape sequences and collapse progress spam. Carriage-return
+    redraws collapse to their final state; dpkg's fancy progress lines and
+    bare progress bars are dropped, so apt's percent updates don't flood the
+    console (e.g. 'Reading... 0%\\rReading... Done' shows just 'Done')."""
     s = ANSI_RE.sub("", s)
     if "\r" in s:
         parts = [p for p in s.split("\r") if p.strip()]
         s = parts[-1] if parts else ""
+    stripped = s.strip()
+    if _PROGRESS_RE.match(stripped) or _BAR_RE.match(stripped):
+        return ""
     return s
 
 
