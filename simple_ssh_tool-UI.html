@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<!-- Simple SSH Tool - https://github.com/JDE-Projects -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Simple SSH Tool</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:        #0a0e14;
+    --bg-2:      #0e131c;
+    --panel:     #121823;
+    --panel-2:   #161d2a;
+    --border:    #20293a;
+    --border-2:  #2b3650;
+    --text:      #dfe7f2;
+    --text-dim:  #8a98b0;
+    --text-faint:#5a6678;
+    --accent:    #4dd6c1;
+    --accent-2:  #2bb6a3;
+    --glow:      rgba(77, 214, 193, 0.35);
+    --amber:     #f0b860;
+    --red:       #ff6b7a;
+    --green:     #5ce39b;
+    --blue:      #6db3ff;
+    --purple:    #b48cff;
+    --radius:    14px;
+    --radius-sm: 9px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Sora', system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background:
+      radial-gradient(900px 500px at 12% -10%, rgba(77,214,193,0.10), transparent 60%),
+      radial-gradient(800px 500px at 100% 0%, rgba(109,179,255,0.07), transparent 55%),
+      var(--bg);
+  }
+
+  /* ---- layout: top bar, then devices + console, then command library ---- */
+  .app {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) 250px;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "top  top"
+      "left right"
+      "lib  lib";
+    height: 100vh;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  /* ---- top bar ---- */
+  .topbar { grid-area: top; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand .mark {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(145deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center;
+    box-shadow: 0 0 24px var(--glow), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .brand .mark svg { width: 22px; height: 22px; }
+  .brand h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.2px; }
+  .brand .ghlink {
+    font-size: 11.5px; color: var(--text-faint); margin-top: 2px;
+    cursor: pointer; display: inline-block; transition: color 0.15s;
+  }
+  .brand .ghlink:hover { color: var(--accent); text-decoration: underline; }
+  .top-actions { display: flex; gap: 10px; }
+
+  /* ---- buttons ---- */
+  .btn {
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    color: var(--text); cursor: pointer;
+    background: var(--panel-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    padding: 9px 14px;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: all 0.16s ease; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: #fff; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn svg { width: 15px; height: 15px; }
+  .btn.primary {
+    background: linear-gradient(145deg, var(--accent), var(--accent-2));
+    color: #042b27; border: none; font-weight: 600;
+    box-shadow: 0 4px 18px var(--glow);
+  }
+  .btn.primary:hover { filter: brightness(1.08); color: #042b27; }
+  .btn.ghost { background: transparent; }
+  .btn.danger:hover { border-color: var(--red); color: var(--red); }
+  .btn.tiny { padding: 6px 10px; font-size: 12px; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .stop-btn { display: none; }   /* shown by JS only while a command runs */
+
+  /* ---- left column: devices ---- */
+  .devices {
+    grid-area: left;
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .col-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 12px; }
+  .col-head h2 { font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+  .device-list { overflow-y: auto; padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+
+  .card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 15px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    position: relative; overflow: hidden; cursor: pointer;
+  }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--border-2); transition: background 0.2s;
+  }
+  .card.selected { border-color: var(--border-2); }
+  .card.selected::before { background: var(--text-dim); }
+  .card.connected { border-color: var(--accent-2); box-shadow: 0 0 0 1px rgba(77,214,193,0.15), 0 8px 30px rgba(0,0,0,0.3); }
+  .card.connected::before { background: linear-gradient(var(--accent), var(--accent-2)); }
+
+  .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .card-name { font-size: 15.5px; font-weight: 600; display: flex; align-items: center; gap: 9px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex: none; }
+  .card.connected .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(92,227,155,0.18); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.55;} }
+  .card-meta { font-size: 12px; color: var(--text-faint); margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+
+  .card-icons { display: flex; gap: 4px; }
+  .icon-btn { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 4px; border-radius: 6px; display: grid; place-items: center; transition: all 0.15s; }
+  .icon-btn:hover { color: var(--text); background: var(--border); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .pw-row { display: none; margin-top: 13px; gap: 8px; }
+  .card:not(.connected) .pw-row { display: flex; }
+  .pw-row input { flex: 1; background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); color: var(--text); padding: 9px 12px; font-family: inherit; font-size: 13px; }
+  .pw-row input:focus { outline: none; border-color: var(--accent); }
+  .cerr { display: none; color: var(--red); font-size: 12px; margin-top: 8px; }
+  .cerr.show { display: block; }
+
+  .actions-wrap { display: none; margin-top: 13px; flex-direction: column; gap: 11px; }
+  .card.connected .actions-wrap { display: flex; }
+  .pins { display: flex; flex-wrap: wrap; gap: 7px; }
+  .pin-btn { font-size: 12.5px; padding: 7px 12px; }
+  .pins-empty { font-size: 11.5px; color: var(--text-faint); }
+
+  .bottom-row { display: flex; gap: 8px; }
+  .custom-row { display: flex; flex: 1; gap: 8px; align-items: stretch; }
+  .custom-row input[type=text] { flex: 1; background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); color: var(--text); padding: 9px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+  .custom-row input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .sudo-toggle { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); cursor: pointer; user-select: none; border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 0 11px; white-space: nowrap; }
+  .sudo-toggle input { accent-color: var(--accent); width: 14px; height: 14px; }
+
+  /* ---- right column: console with tabs ---- */
+  .console-wrap {
+    grid-area: right;
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .tabstrip { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .tablist { display: flex; align-items: center; gap: 7px; overflow-x: auto; flex: 1; }
+  .tab {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--text-dim);
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 9px; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s; max-width: 200px;
+  }
+  .tab:hover { border-color: var(--border-2); }
+  .tab.active { color: var(--text); border-color: var(--accent-2); background: rgba(77,214,193,0.08); }
+  .tab .tname { overflow: hidden; text-overflow: ellipsis; }
+  .tab .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex: none; }
+  .tab.connected .tdot { background: var(--green); }
+  .tab.running .tdot { background: var(--amber); }
+  .tab.disconnected .tdot { background: var(--text-faint); }
+  .tab .tclose { background: none; border: none; color: var(--text-faint); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 4px; }
+  .tab .tclose:hover { color: var(--red); }
+  .console-actions { display: flex; gap: 8px; }
+  .console-body { flex: 1; position: relative; overflow: hidden; }
+  .console {
+    position: absolute; inset: 0; overflow-y: auto; padding: 14px 16px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.65;
+  }
+  .ln { white-space: pre-wrap; word-break: break-word; display: flex; gap: 10px; }
+  .ln .tag { flex: none; color: var(--text-faint); font-size: 10.5px; width: 70px; text-align: right; opacity: 0.75; padding-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ln .msg { flex: 1; }
+  .ln.cmd .msg   { color: var(--accent); font-weight: 600; }
+  .ln.ok .msg    { color: var(--green); }
+  .ln.err .msg   { color: var(--red); }
+  .ln.warn .msg  { color: var(--amber); }
+  .ln.muted .msg { color: var(--text-faint); }
+  .ln.out .msg   { color: var(--text-dim); }
+  .console-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-faint); font-size: 13px; text-align: center; padding: 0 20px; }
+
+  /* ---- bottom: command library ---- */
+  .library {
+    grid-area: lib;
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .lib-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; }
+  .lib-head h2 { font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+  .lib-head h2 .dev { color: var(--accent); }
+  .lib-body { flex: 1; overflow-y: auto; padding: 4px 16px 16px; }
+  .cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .lib-empty { color: var(--text-faint); font-size: 13px; text-align: center; margin-top: 36px; }
+
+  .cmd-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 12px; display: flex; flex-direction: column; gap: 7px; }
+  .cmd-card.pinned { border-color: var(--accent-2); }
+  .cc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .cc-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-pin { background: none; border: none; cursor: pointer; color: var(--text-faint); padding: 2px; display: grid; place-items: center; }
+  .cc-pin svg { width: 15px; height: 15px; }
+  .cc-pin.on { color: var(--accent); }
+  .cc-cmd { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-foot { display: flex; align-items: center; gap: 6px; }
+  .cc-badge { font-size: 9.5px; letter-spacing: 0.4px; text-transform: uppercase; font-weight: 600; padding: 2px 7px; border-radius: 20px; }
+  .cc-badge.sudo { color: var(--amber); background: rgba(240,184,96,0.12); border: 1px solid rgba(240,184,96,0.3); }
+  .cc-badge.confirm { color: var(--red); background: rgba(255,107,122,0.1); border: 1px solid rgba(255,107,122,0.3); }
+  .cc-actions { margin-left: auto; display: flex; gap: 7px; color: var(--text-faint); }
+  .cc-actions button { background: none; border: none; color: inherit; cursor: pointer; padding: 3px; border-radius: 6px; display: grid; place-items: center; transition: all 0.15s; }
+  .cc-actions button:hover { color: var(--text); background: var(--border); }
+  .cc-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .cc-actions button svg { width: 15px; height: 15px; }
+  .cc-actions .run:hover:not(:disabled) { color: var(--green); }
+  .cc-actions .del:hover { color: var(--red); }
+
+  /* ---- modals ---- */
+  .overlay { position: fixed; inset: 0; background: rgba(4,7,12,0.7); backdrop-filter: blur(4px); display: none; place-items: center; z-index: 50; }
+  .overlay.show { display: grid; }
+  .modal { width: 460px; max-width: 92vw; background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius); padding: 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.6); animation: rise 0.18s ease; }
+  @keyframes rise { from{ opacity:0; transform: translateY(12px);} to{opacity:1; transform:none;} }
+  .modal h3 { font-size: 17px; margin-bottom: 4px; }
+  .modal p.hint { font-size: 12.5px; color: var(--text-faint); margin-bottom: 18px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; font-weight: 600; }
+  .field input[type=text], .field textarea { width: 100%; background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); color: var(--text); padding: 10px 12px; font-family: inherit; font-size: 13.5px; }
+  .field textarea { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; resize: vertical; min-height: 44px; }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .checkrow { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-dim); cursor: pointer; user-select: none; margin-bottom: 14px; }
+  .checkrow input { accent-color: var(--accent); width: 15px; height: 15px; }
+  .cmd-preview { background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-dim); margin-bottom: 16px; word-break: break-all; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+  .modal-err { color: var(--red); font-size: 12.5px; min-height: 16px; margin-top: 4px; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4658; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#042b27" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 17l6-6-6-6M12 19h8"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Simple SSH Tool</h1>
+        <span class="ghlink" id="ghLink">github.com/JDE-Projects</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" id="addBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add Device
+      </button>
+      <button class="btn danger ghost" id="endAllBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64M12 2v10"/></svg>
+        End All Sessions
+      </button>
+    </div>
+  </div>
+
+  <!-- devices -->
+  <div class="devices">
+    <div class="col-head"><h2>Devices</h2></div>
+    <div class="device-list" id="deviceList"></div>
+  </div>
+
+  <!-- console with tabs -->
+  <div class="console-wrap">
+    <div class="tabstrip">
+      <div class="tablist" id="tablist"></div>
+      <div class="console-actions">
+        <button class="btn tiny ghost" id="exportBtn">Export</button>
+        <button class="btn tiny ghost" id="clearBtn">Clear</button>
+      </div>
+    </div>
+    <div class="console-body" id="consoleBody">
+      <div class="console-empty" id="consoleEmpty">Connect to a device to begin. Output appears here in real time.</div>
+    </div>
+  </div>
+
+  <!-- command library -->
+  <div class="library">
+    <div class="lib-head">
+      <h2 id="libTitle">Command Library</h2>
+      <button class="btn tiny" id="addCmdBtn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add Command
+      </button>
+    </div>
+    <div class="lib-body" id="libBody">
+      <div class="lib-empty">Select a device to manage its commands.</div>
+    </div>
+  </div>
+</div>
+
+<!-- device editor modal -->
+<div class="overlay" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">Add Device</h3>
+    <p class="hint">Only the name, address and username are saved. Passwords are never stored.</p>
+    <input type="hidden" id="fId" />
+    <div class="field"><label>Display Name</label><input type="text" id="fName" placeholder="e.g. UBUNTU-SERVER" /></div>
+    <div class="field"><label>Host / IP Address</label><input type="text" id="fHost" placeholder="e.g. 10.0.50.2" /></div>
+    <div class="field"><label>Username</label><input type="text" id="fUser" placeholder="e.g. john" /></div>
+    <div class="modal-err" id="modalErr"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelBtn">Cancel</button>
+      <button class="btn primary" id="saveBtn">Save Device</button>
+    </div>
+  </div>
+</div>
+
+<!-- command editor modal -->
+<div class="overlay" id="cmdModal">
+  <div class="modal">
+    <h3 id="cmdModalTitle">Add Command</h3>
+    <p class="hint">Give the command a name, then the command to run on this device.</p>
+    <input type="hidden" id="cId" />
+    <div class="field"><label>Name</label><input type="text" id="cName" placeholder="e.g. Update OS" /></div>
+    <div class="field"><label>Command</label><textarea id="cCmd" placeholder="e.g. apt update &amp;&amp; apt upgrade -y"></textarea></div>
+    <div class="field"><label>Confirm message (optional)</label><input type="text" id="cConfirm" placeholder="Ask before running, e.g. Reboot now?" /></div>
+    <label class="checkrow"><input type="checkbox" id="cSudo" /> Run with sudo</label>
+    <label class="checkrow"><input type="checkbox" id="cPinned" /> Pin as a quick button</label>
+    <div class="modal-err" id="cmdErr"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cmdCancel">Cancel</button>
+      <button class="btn primary" id="cmdSave">Save Command</button>
+    </div>
+  </div>
+</div>
+
+<!-- save-to-library prompt -->
+<div class="overlay" id="saveModal">
+  <div class="modal" style="width:420px;">
+    <h3>Save to command library?</h3>
+    <p class="hint">Add this command to the current device for one-click reuse.</p>
+    <div class="cmd-preview" id="savePreview"></div>
+    <div class="field"><label>Name</label><input type="text" id="saveName" placeholder="Give it a short name" /></div>
+    <label class="checkrow"><input type="checkbox" id="saveNoAsk" /> Don't ask again this session</label>
+    <div class="modal-actions">
+      <button class="btn ghost" id="saveSkip">Not now</button>
+      <button class="btn primary" id="saveDo">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- confirm modal -->
+<div class="overlay" id="confirm">
+  <div class="modal" style="width:400px;">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p class="hint" id="confirmMsg"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="confirmNo">Cancel</button>
+      <button class="btn primary" id="confirmYes">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let DEVICES = [];
+  let AUTHOR_URL = 'https://github.com/JDE-Projects';
+  let MAX_CONN = 5;
+  let MAX_PINNED = 10;
+  const MAX_LINES = 1500;
+
+  let currentDeviceId = null;   // selected device (drives library + highlight)
+  let activeTabId = null;       // visible console tab
+  const openTabs = {};          // id -> true
+  const connected = {};         // id -> true while connected
+  let askSaveCustom = true;     // session-only flag
+
+  let confirmCb = null;
+  let cmdCtx = null;            // {deviceId, index|null}
+  let saveCtx = null;           // {deviceId, command, sudo}
+
+  const $ = (id) => document.getElementById(id);
+
+  const ICON = {
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2l8 8-3.5 1.2-3 3L14 22l-2.2-2.2-4.4 4.4-1.4-1.4 4.4-4.4L8 16l3-3 1.2-3.5z"/></svg>'
+  };
+
+  function api() { return window.pywebview.api; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function dev(id) { return DEVICES.find(d => d.id === id); }
+  function cardEl(id) { return document.querySelector(`[data-card="${id}"]`); }
+
+  /* ---------- console / tabs ---------- */
+
+  function consoleFor(id) {
+    let con = document.querySelector(`[data-console="${id}"]`);
+    if (!con) {
+      con = document.createElement('div');
+      con.className = 'console';
+      con.dataset.console = id;
+      con.style.display = (id === activeTabId) ? 'block' : 'none';
+      $('consoleBody').appendChild(con);
+    }
+    return con;
+  }
+
+  function addLine(id, text, level) {
+    ensureTab(id);
+    const con = consoleFor(id);
+    const ln = document.createElement('div');
+    ln.className = 'ln ' + (level || 'out');
+    const t = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    ln.innerHTML = '<span class="tag"></span><span class="msg"></span>';
+    ln.querySelector('.tag').textContent = t;
+    ln.querySelector('.msg').textContent = text;
+    con.appendChild(ln);
+    while (con.children.length > MAX_LINES) con.removeChild(con.firstChild);
+    if (id === activeTabId) con.scrollTop = con.scrollHeight;
+  }
+
+  function renderTabs() {
+    const strip = $('tablist');
+    strip.innerHTML = '';
+    Object.keys(openTabs).forEach(id => {
+      const d = dev(id);
+      const name = d ? d.name : id;
+      const state = connected[id] ? 'connected' : 'disconnected';
+      const tab = document.createElement('div');
+      tab.className = 'tab ' + state + (id === activeTabId ? ' active' : '');
+      tab.dataset.tab = id;
+      tab.innerHTML = `<span class="tdot"></span><span class="tname">${esc(name)}</span><button class="tclose" title="Close tab">&times;</button>`;
+      tab.onclick = (e) => { if (e.target.classList.contains('tclose')) return; setActiveTab(id); };
+      tab.querySelector('.tclose').onclick = (e) => { e.stopPropagation(); closeTab(id); };
+      strip.appendChild(tab);
+    });
+  }
+
+  function setTabState(id, state) {
+    const tab = document.querySelector(`.tab[data-tab="${id}"]`);
+    if (!tab) return;
+    tab.classList.remove('connected','running','disconnected');
+    tab.classList.add(state);
+  }
+
+  function ensureTab(id) {
+    if (openTabs[id]) return;
+    openTabs[id] = true;
+    consoleFor(id);
+    if (!activeTabId) activeTabId = id;
+    renderTabs();
+  }
+
+  function setActiveTab(id) {
+    activeTabId = id;
+    $('consoleEmpty').style.display = 'none';
+    document.querySelectorAll('.console').forEach(c => {
+      c.style.display = (c.dataset.console === id) ? 'block' : 'none';
+    });
+    const con = consoleFor(id);
+    con.scrollTop = con.scrollHeight;
+    renderTabs();
+    selectDevice(id);
+  }
+
+  function closeTab(id) {
+    const wasConnected = !!connected[id];
+    const act = () => {
+      delete openTabs[id];
+      const con = document.querySelector(`[data-console="${id}"]`);
+      if (con) con.remove();
+      if (activeTabId === id) {
+        const rest = Object.keys(openTabs);
+        activeTabId = rest.length ? rest[0] : null;
+      }
+      if (activeTabId) setActiveTab(activeTabId);
+      else { $('consoleEmpty').style.display = 'flex'; renderTabs(); }
+    };
+    if (wasConnected) {
+      const name = (dev(id) || {}).name || 'this device';
+      askConfirm('Close tab', `Close this tab and disconnect from ${name}?`, async () => {
+        await api().disconnect(id);
+        act();
+      }, 'Disconnect & close', 'Cancel');
+    } else {
+      act();
+    }
+  }
+
+  /* ---------- device cards ---------- */
+
+  function render() {
+    const list = $('deviceList');
+    list.innerHTML = '';
+    if (!DEVICES.length) {
+      list.innerHTML = '<div class="lib-empty" style="margin-top:30px;">No devices yet. Click \u201cAdd Device\u201d.</div>';
+      return;
+    }
+    DEVICES.forEach(d => list.appendChild(buildCard(d)));
+    reconcile();
+  }
+
+  function buildCard(d) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.card = d.id;
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="card-name"><span class="dot"></span>${esc(d.name)}</div>
+          <div class="card-meta">${esc(d.username)}@${esc(d.host)}</div>
+        </div>
+        <div class="card-icons">
+          <button class="icon-btn" data-edit title="Edit device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+          <button class="icon-btn" data-del title="Delete device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
+        </div>
+      </div>
+      <div class="pw-row">
+        <input type="password" placeholder="Password (not saved)" data-pw />
+        <button class="btn primary" data-connect>Connect</button>
+      </div>
+      <div class="cerr" data-cerr></div>
+      <div class="actions-wrap">
+        <div class="pins" data-pins></div>
+        <div class="bottom-row">
+          <div class="custom-row">
+            <input type="text" placeholder="Custom command\u2026" data-custom />
+            <label class="sudo-toggle"><input type="checkbox" data-sudo />sudo</label>
+            <button class="btn" data-run>Run</button>
+          </div>
+          <button class="btn danger stop-btn" data-cancel>Stop</button>
+          <button class="btn danger ghost" data-disconnect>Disconnect</button>
+        </div>
+      </div>`;
+    wireCard(card, d);
+    buildPins(card, d);
+    return card;
+  }
+
+  function buildPins(card, d) {
+    const wrap = card.querySelector('[data-pins]');
+    wrap.innerHTML = '';
+    const pinned = (d.commands || []).filter(c => c.pinned).slice(0, MAX_PINNED);
+    if (!pinned.length) {
+      wrap.innerHTML = '<span class="pins-empty">No pinned commands. Pin some in the library below.</span>';
+      return;
+    }
+    pinned.forEach(c => {
+      const idx = d.commands.indexOf(c);
+      const b = document.createElement('button');
+      b.className = 'btn pin-btn';
+      b.textContent = c.name;
+      b.onclick = (e) => { e.stopPropagation(); runLibraryCommand(d.id, idx); };
+      wrap.appendChild(b);
+    });
+  }
+
+  function wireCard(card, d) {
+    const id = d.id;
+    card.onclick = () => selectDevice(id);
+    card.querySelector('[data-edit]').onclick = (e) => { e.stopPropagation(); openEditor(d); };
+    card.querySelector('[data-del]').onclick = (e) => {
+      e.stopPropagation();
+      askConfirm('Delete device?', `Remove \u201c${d.name}\u201d and its saved commands?`, async () => {
+        const r = await api().delete_device(id);
+        DEVICES = r.devices;
+        if (currentDeviceId === id) currentDeviceId = null;
+        if (openTabs[id]) closeTab(id);
+        render(); renderLibrary();
+      });
+    };
+    card.querySelector('[data-connect]').onclick = async (e) => {
+      e.stopPropagation();
+      const pwInput = card.querySelector('[data-pw]');
+      const errEl = card.querySelector('[data-cerr]');
+      const btn = card.querySelector('[data-connect]');
+      errEl.classList.remove('show'); errEl.textContent = '';
+      btn.disabled = true; btn.textContent = 'Connecting\u2026';
+      const r = await api().connect(id, pwInput.value);
+      btn.disabled = false; btn.textContent = 'Connect';
+      if (r.ok) {
+        pwInput.value = '';
+        connected[id] = true;
+        card.classList.add('connected');
+        ensureTab(id); setActiveTab(id); setTabState(id, 'connected');
+      } else {
+        errEl.textContent = r.error; errEl.classList.add('show');
+      }
+    };
+    card.querySelector('[data-cancel]').onclick = (e) => { e.stopPropagation(); api().cancel(id); };
+    card.querySelector('[data-disconnect]').onclick = async (e) => {
+      e.stopPropagation();
+      await api().disconnect(id);
+      const name = d.name;
+      askConfirm('Disconnect', `Close the console tab for ${name} too?`, () => closeTab(id), 'Close tab', 'Keep tab');
+    };
+    const runCustom = (e) => {
+      if (e) e.stopPropagation();
+      const input = card.querySelector('[data-custom]');
+      const sudo = card.querySelector('[data-sudo]').checked;
+      const cmd = input.value.trim();
+      if (!cmd) return;
+      ensureTab(id); setActiveTab(id);
+      api().run_command(id, cmd, sudo, 'Custom command');
+      input.value = '';
+      maybeOfferSave(id, cmd, sudo);
+    };
+    card.querySelector('[data-run]').onclick = runCustom;
+    card.querySelector('[data-custom]').addEventListener('keydown', e => { if (e.key === 'Enter') runCustom(e); });
+    card.querySelector('[data-pw]').addEventListener('keydown', e => { if (e.key === 'Enter') card.querySelector('[data-connect]').click(); });
+  }
+
+  function reconcile() {
+    Object.keys(connected).forEach(id => {
+      const card = cardEl(id);
+      if (card) card.classList.add('connected');
+    });
+    applySelection();
+  }
+
+  function applySelection() {
+    document.querySelectorAll('.card').forEach(c => c.classList.toggle('selected', c.dataset.card === currentDeviceId));
+  }
+
+  function selectDevice(id) {
+    if (currentDeviceId === id) return;
+    currentDeviceId = id;
+    applySelection();
+    renderLibrary();
+  }
+
+  /* ---------- command library ---------- */
+
+  function renderLibrary() {
+    const d = dev(currentDeviceId);
+    $('addCmdBtn').disabled = !d;
+    if (!d) {
+      $('libTitle').innerHTML = 'Command Library';
+      $('libBody').innerHTML = '<div class="lib-empty">Select a device to manage its commands.</div>';
+      return;
+    }
+    $('libTitle').innerHTML = `Command Library <span class="dev">\u00b7 ${esc(d.name)}</span>`;
+    const cmds = d.commands || [];
+    if (!cmds.length) {
+      $('libBody').innerHTML = `<div class="lib-empty">No saved commands for ${esc(d.name)} yet. Click \u201cAdd Command\u201d.</div>`;
+      return;
+    }
+    const isConn = !!connected[d.id];
+    const grid = document.createElement('div');
+    grid.className = 'cmd-grid';
+    cmds.forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'cmd-card' + (c.pinned ? ' pinned' : '');
+      card.innerHTML = `
+        <div class="cc-top">
+          <span class="cc-name">${esc(c.name)}</span>
+          <button class="cc-pin ${c.pinned ? 'on' : ''}" title="${c.pinned ? 'Unpin' : 'Pin'}">${ICON.pin}</button>
+        </div>
+        <div class="cc-cmd" title="${esc(c.command)}">${esc(c.command)}</div>
+        <div class="cc-foot">
+          ${c.sudo ? '<span class="cc-badge sudo">sudo</span>' : ''}
+          ${c.confirm ? '<span class="cc-badge confirm">confirm</span>' : ''}
+          <div class="cc-actions">
+            <button class="run" title="${isConn ? 'Run' : 'Connect to run'}" ${isConn ? '' : 'disabled'}>${ICON.play}</button>
+            <button class="edit" title="Edit">${ICON.edit}</button>
+            <button class="del" title="Delete">${ICON.trash}</button>
+          </div>
+        </div>`;
+      card.querySelector('.cc-pin').onclick = () => togglePin(d.id, i);
+      card.querySelector('.edit').onclick = () => openCmdEditor(d.id, i);
+      card.querySelector('.del').onclick = () => {
+        askConfirm('Delete command?', `Remove \u201c${c.name}\u201d from ${d.name}?`, () => deleteCommand(d.id, i));
+      };
+      const runBtn = card.querySelector('.run');
+      if (isConn) runBtn.onclick = () => runLibraryCommand(d.id, i);
+      grid.appendChild(card);
+    });
+    $('libBody').innerHTML = '';
+    $('libBody').appendChild(grid);
+  }
+
+  function runLibraryCommand(deviceId, index) {
+    const d = dev(deviceId);
+    if (!d) return;
+    const c = (d.commands || [])[index];
+    if (!c) return;
+    if (!connected[deviceId]) { addLine(deviceId, 'Connect to this device first.', 'err'); return; }
+    const go = () => {
+      ensureTab(deviceId); setActiveTab(deviceId);
+      api().run_command(deviceId, c.command, !!c.sudo, c.name);
+    };
+    if (c.confirm) askConfirm(c.name, c.confirm, go);
+    else go();
+  }
+
+  async function persistDevice(d) {
+    const r = await api().save_device(d);
+    DEVICES = r.devices;
+    render(); renderLibrary();
+  }
+
+  function pinnedCount(d) { return (d.commands || []).filter(c => c.pinned).length; }
+
+  function togglePin(deviceId, index) {
+    const d = dev(deviceId); if (!d) return;
+    const c = d.commands[index];
+    if (!c.pinned && pinnedCount(d) >= MAX_PINNED) {
+      addLine(deviceId, `You can pin up to ${MAX_PINNED} commands.`, 'warn');
+      ensureTab(deviceId);
+      return;
+    }
+    c.pinned = !c.pinned;
+    persistDevice(d);
+  }
+
+  function deleteCommand(deviceId, index) {
+    const d = dev(deviceId); if (!d) return;
+    d.commands.splice(index, 1);
+    persistDevice(d);
+  }
+
+  /* ---------- command editor ---------- */
+
+  function openCmdEditor(deviceId, index) {
+    cmdCtx = { deviceId, index: (typeof index === 'number' ? index : null) };
+    const d = dev(deviceId);
+    const c = (cmdCtx.index !== null) ? d.commands[cmdCtx.index] : null;
+    $('cmdModalTitle').textContent = c ? 'Edit Command' : 'Add Command';
+    $('cName').value = c ? c.name : '';
+    $('cCmd').value = c ? c.command : '';
+    $('cConfirm').value = c ? (c.confirm || '') : '';
+    $('cSudo').checked = c ? !!c.sudo : false;
+    $('cPinned').checked = c ? !!c.pinned : false;
+    $('cmdErr').textContent = '';
+    $('cmdModal').classList.add('show');
+    setTimeout(() => $('cName').focus(), 40);
+  }
+  $('cmdCancel').onclick = () => $('cmdModal').classList.remove('show');
+  $('cmdSave').onclick = () => {
+    const name = $('cName').value.trim();
+    const command = $('cCmd').value.trim();
+    if (!name || !command) { $('cmdErr').textContent = 'Name and command are both required.'; return; }
+    const d = dev(cmdCtx.deviceId); if (!d) return;
+    const pinned = $('cPinned').checked;
+    const wasPinned = (cmdCtx.index !== null) ? !!d.commands[cmdCtx.index].pinned : false;
+    if (pinned && !wasPinned && pinnedCount(d) >= MAX_PINNED) {
+      $('cmdErr').textContent = `You can pin up to ${MAX_PINNED} commands.`; return;
+    }
+    const obj = { name, command, sudo: $('cSudo').checked, confirm: $('cConfirm').value.trim(), pinned };
+    if (!d.commands) d.commands = [];
+    if (cmdCtx.index !== null) d.commands[cmdCtx.index] = obj;
+    else d.commands.push(obj);
+    $('cmdModal').classList.remove('show');
+    persistDevice(d);
+  };
+  $('addCmdBtn').onclick = () => { if (currentDeviceId) openCmdEditor(currentDeviceId, null); };
+
+  /* ---------- save-to-library prompt ---------- */
+
+  function maybeOfferSave(deviceId, command, sudo) {
+    if (!askSaveCustom) return;
+    const d = dev(deviceId); if (!d) return;
+    if ((d.commands || []).some(c => c.command === command)) return;
+    saveCtx = { deviceId, command, sudo };
+    $('savePreview').textContent = command;
+    $('saveName').value = '';
+    $('saveNoAsk').checked = false;
+    $('saveModal').classList.add('show');
+    setTimeout(() => $('saveName').focus(), 40);
+  }
+  function closeSave() {
+    if ($('saveNoAsk').checked) askSaveCustom = false;
+    $('saveModal').classList.remove('show');
+    saveCtx = null;
+  }
+  $('saveSkip').onclick = closeSave;
+  $('saveDo').onclick = () => {
+    if (!saveCtx) { closeSave(); return; }
+    const name = $('saveName').value.trim() || saveCtx.command.slice(0, 24);
+    const d = dev(saveCtx.deviceId);
+    if (d) {
+      if (!d.commands) d.commands = [];
+      d.commands.push({ name, command: saveCtx.command, sudo: !!saveCtx.sudo, confirm: '', pinned: false });
+      persistDevice(d);
+    }
+    closeSave();
+  };
+  $('saveName').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveDo').click(); });
+
+  /* ---------- device editor ---------- */
+
+  function openEditor(d) {
+    $('modalTitle').textContent = d ? 'Edit Device' : 'Add Device';
+    $('fId').value = d ? d.id : '';
+    $('fName').value = d ? d.name : '';
+    $('fHost').value = d ? d.host : '';
+    $('fUser').value = d ? d.username : '';
+    $('modalErr').textContent = '';
+    $('modal').classList.add('show');
+    setTimeout(() => $('fName').focus(), 40);
+  }
+  $('addBtn').onclick = () => openEditor(null);
+  $('cancelBtn').onclick = () => $('modal').classList.remove('show');
+  $('saveBtn').onclick = async () => {
+    const name = $('fName').value.trim();
+    const host = $('fHost').value.trim();
+    const user = $('fUser').value.trim();
+    if (!name || !host || !user) { $('modalErr').textContent = 'Name, host and username are all required.'; return; }
+    const existing = $('fId').value ? dev($('fId').value) : null;
+    const device = {
+      id: $('fId').value || null,
+      name, host, username: user,
+      commands: existing ? (existing.commands || []) : []
+    };
+    const r = await api().save_device(device);
+    if (!r.ok) { $('modalErr').textContent = r.error || 'Save failed.'; return; }
+    DEVICES = r.devices;
+    $('modal').classList.remove('show');
+    render();
+    const saved = DEVICES.find(x => x.name === name && x.host === host) || null;
+    if (saved) selectDevice(saved.id);
+    renderLibrary();
+  };
+
+  /* ---------- confirm modal ---------- */
+
+  function askConfirm(title, msg, cb, yesLabel, noLabel) {
+    $('confirmTitle').textContent = title;
+    $('confirmMsg').textContent = msg;
+    $('confirmYes').textContent = yesLabel || 'Confirm';
+    $('confirmNo').textContent = noLabel || 'Cancel';
+    confirmCb = cb;
+    $('confirm').classList.add('show');
+  }
+  $('confirmNo').onclick = () => { $('confirm').classList.remove('show'); confirmCb = null; };
+  $('confirmYes').onclick = () => { $('confirm').classList.remove('show'); const cb = confirmCb; confirmCb = null; if (cb) cb(); };
+
+  /* ---------- top actions ---------- */
+
+  $('ghLink').onclick = () => { try { api().open_url(AUTHOR_URL); } catch (e) {} };
+  $('endAllBtn').onclick = () => {
+    askConfirm('End all sessions?', 'Disconnect every device and clear all passwords from memory.', async () => {
+      await api().disconnect_all();
+    });
+  };
+  $('exportBtn').onclick = async () => {
+    if (!activeTabId) { return; }
+    const d = dev(activeTabId);
+    const name = d ? d.name : 'Console';
+    const con = document.querySelector(`[data-console="${activeTabId}"]`);
+    const lines = con ? Array.from(con.querySelectorAll('.ln')).map(ln => {
+      const t = ln.querySelector('.tag').textContent;
+      const m = ln.querySelector('.msg').textContent;
+      return `${t}  ${name} \u00b7 ${m}`;
+    }) : [];
+    if (!lines.length) { addLine(activeTabId, 'Nothing to export yet.', 'muted'); return; }
+    const r = await api().export_console(name, lines.join('\n') + '\n');
+    addLine(activeTabId, r.ok ? `Console exported: ${r.name}` : ('Export failed: ' + (r.error || 'unknown')), r.ok ? 'ok' : 'err');
+  };
+  $('clearBtn').onclick = () => {
+    if (!activeTabId) return;
+    const con = document.querySelector(`[data-console="${activeTabId}"]`);
+    if (con) con.innerHTML = '';
+  };
+
+  /* ---------- events from Python ---------- */
+
+  window.__onPyEvent = function(channel, payload) {
+    if (channel === 'log') {
+      addLine(payload.deviceId, payload.text, payload.level);
+    } else if (channel === 'status') {
+      const id = payload.deviceId, st = payload.state;
+      const card = cardEl(id);
+      if (st === 'running') {
+        connected[id] = true; setTabState(id, 'running');
+        if (card) { card.classList.add('connected'); cardRunning(card, true); }
+      } else if (st === 'connected') {
+        connected[id] = true; setTabState(id, 'connected');
+        if (card) { card.classList.add('connected'); cardRunning(card, false); }
+      } else if (st === 'idle') {
+        delete connected[id]; setTabState(id, 'disconnected');
+        if (card) { card.classList.remove('connected'); cardRunning(card, false); }
+      }
+    }
+  };
+
+  function cardRunning(card, running) {
+    const stop = card.querySelector('[data-cancel]');
+    const ctrls = card.querySelectorAll('.actions-wrap .btn:not([data-cancel]), .actions-wrap input');
+    ctrls.forEach(b => b.disabled = running);
+    if (stop) stop.style.display = running ? 'inline-flex' : 'none';
+  }
+
+  /* ---------- boot ---------- */
+
+  let booted = false;
+  async function boot() {
+    if (booted) return;
+    if (!(window.pywebview && window.pywebview.api && window.pywebview.api.get_config)) return;
+    booted = true;
+    try {
+      const cfg = await api().get_config();
+      DEVICES = cfg.devices || [];
+      AUTHOR_URL = cfg.author || AUTHOR_URL;
+      MAX_CONN = cfg.maxConnections || 5;
+      MAX_PINNED = cfg.maxPinned || 10;
+      render();
+    } catch (e) {
+      const empty = $('consoleEmpty'); if (empty) empty.textContent = 'Boot error: ' + e;
+    }
+  }
+  window.addEventListener('pywebviewready', boot);
+  setTimeout(boot, 5000);
+</script>
+</body>
+</html>

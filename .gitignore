@@ -1,0 +1,14 @@
+# Runtime data (maps your internal hosts/usernames - keep private)
+devices.json
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+
+# Personal local launcher (not for distribution)
+Launch_*.bat
