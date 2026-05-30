@@ -13,7 +13,9 @@ echo.
 
 pyinstaller --noconfirm --onefile --windowed ^
   --add-data "simple_ssh_tool-UI.html;." ^
+  --add-data "icon.png;." ^
   --splash "splash.png" ^
+  --icon "icon.ico" ^
   --collect-all PyQt6 ^
   --collect-all qtpy ^
   --name "Simple SSH Tool" ^

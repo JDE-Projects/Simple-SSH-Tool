@@ -510,7 +510,12 @@ def main():
         ).start()
 
     # Qt (PyQt6 + WebEngine) backend avoids the slow WinForms/WebView2 startup.
-    webview.start(gui='qt')
+    # icon= sets the live window/taskbar icon on Qt. Guarded so an older
+    # pywebview without the icon parameter still starts.
+    try:
+        webview.start(gui='qt', icon=resource_path('icon.png'))
+    except TypeError:
+        webview.start(gui='qt')
 
 
 if __name__ == "__main__":
