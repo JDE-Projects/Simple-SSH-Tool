@@ -46,13 +46,13 @@ pywebview
 Bundled fonts
 ----------------------------------------------------------------------
 Sora
-  Copyright (c) The Sora Project Authors
+  Copyright 2019 The Sora Project Authors
   License: SIL Open Font License 1.1 (OFL-1.1)
-  https://github.com/soumitri-org/Sora
+  https://github.com/sora-xor/sora-font
   https://openfontlicense.org
 
 JetBrains Mono
-  Copyright (c) JetBrains s.r.o.
+  Copyright 2020 The JetBrains Mono Project Authors
   License: SIL Open Font License 1.1 (OFL-1.1)
   https://github.com/JetBrains/JetBrainsMono
   https://openfontlicense.org
