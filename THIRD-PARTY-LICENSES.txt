@@ -1,0 +1,58 @@
+Simple SSH Tool: Third-Party Licenses
+=====================================
+
+The distributed build bundles the third-party components below. They remain
+under their own licenses; the notices here satisfy those terms. Full license
+texts are at the URLs given. This file is not legal advice.
+
+The app ships as a PyInstaller --onedir folder, so the bundled Qt and Paramiko
+libraries stay as replaceable files beside the executable, which is what the
+LGPL requires.
+
+----------------------------------------------------------------------
+Qt (via PySide6)
+  License: GNU Lesser General Public License v3.0 (LGPL-3.0)
+  https://www.qt.io/licensing/
+  https://www.gnu.org/licenses/lgpl-3.0.html
+
+PySide6 (Qt for Python)
+  Copyright (c) The Qt Company Ltd.
+  License: GNU Lesser General Public License v3.0 (LGPL-3.0)
+  https://pypi.org/project/PySide6/
+
+Paramiko
+  Copyright (c) Jeff Forcier and contributors
+  License: GNU Lesser General Public License v2.1 (LGPL-2.1)
+  https://github.com/paramiko/paramiko
+  https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+cryptography (Paramiko dependency)
+  License: Apache License 2.0 OR BSD-3-Clause (dual)
+  https://github.com/pyca/cryptography
+
+bcrypt (Paramiko dependency)
+  License: Apache License 2.0
+  https://github.com/pyca/bcrypt
+
+PyNaCl (Paramiko dependency)
+  License: Apache License 2.0
+  https://github.com/pyca/pynacl
+
+pywebview
+  License: BSD-3-Clause
+  https://github.com/r0x0r/pywebview
+
+----------------------------------------------------------------------
+Bundled fonts
+----------------------------------------------------------------------
+Sora
+  Copyright (c) The Sora Project Authors
+  License: SIL Open Font License 1.1 (OFL-1.1)
+  https://github.com/soumitri-org/Sora
+  https://openfontlicense.org
+
+JetBrains Mono
+  Copyright (c) JetBrains s.r.o.
+  License: SIL Open Font License 1.1 (OFL-1.1)
+  https://github.com/JetBrains/JetBrainsMono
+  https://openfontlicense.org
