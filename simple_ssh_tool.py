@@ -21,6 +21,8 @@ import json
 import time
 import threading
 import webbrowser
+import urllib.request
+import urllib.error
 
 import paramiko
 import webview
@@ -28,6 +30,16 @@ import webview
 
 APP_NAME = "Simple SSH Tool"
 AUTHOR_URL = "https://github.com/JDE-Projects"
+
+# Version of record. Equals the latest published release tag (without the v).
+# Bumping this is the first step of shipping a build.
+APP_VERSION = "1.0.0"
+
+# Update check targets this repo's Releases. The endpoint returns 404 while the
+# repo is private, so the check simply stays quiet until the repo is public.
+GITHUB_OWNER = "JDE-Projects"
+GITHUB_REPO = "Simple-SSH-Tool"
+RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 
 MAX_CONNECTIONS = 5   # how many devices can be connected at once
 MAX_PINNED = 10       # how many commands can be pinned as quick buttons
@@ -159,6 +171,46 @@ def save_devices(devices):
 
 
 # ----------------------------------------------------------------------------
+# Update check (GitHub Releases, stdlib only, silent on any failure)
+# ----------------------------------------------------------------------------
+
+def _version_tuple(v):
+    """Turn '1.2.3' (or 'v1.2.3') into a comparable tuple of ints."""
+    v = (v or "").strip().lstrip("vV")
+    parts = []
+    for p in v.split("."):
+        num = "".join(ch for ch in p if ch.isdigit())
+        parts.append(int(num) if num else 0)
+    return tuple(parts) or (0,)
+
+
+def check_for_update():
+    """Ask GitHub for the latest release tag and compare to APP_VERSION.
+    Returns a small dict; never raises. Quiet when offline or while the repo
+    is private (the endpoint returns 404 until it is public)."""
+    api_url = (
+        f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+    )
+    req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:
+        return {"ok": False}  # offline, private repo (404), rate-limited, etc.
+    latest = (data.get("tag_name") or "").strip()
+    if not latest:
+        return {"ok": False}
+    newer = _version_tuple(latest) > _version_tuple(APP_VERSION)
+    return {
+        "ok": True,
+        "current": APP_VERSION,
+        "latest": latest.lstrip("vV"),
+        "newer": newer,
+        "url": data.get("html_url") or RELEASES_URL,
+    }
+
+
+# ----------------------------------------------------------------------------
 # A single live SSH session
 # ----------------------------------------------------------------------------
 
@@ -214,6 +266,11 @@ class Api:
         self.sessions = {}  # device_id -> Session
         self.window = None
         self.frontend_ready = False  # set True by main() when page is loaded
+        # Debug log: off by default. When on, one file per run sits next to the
+        # exe. Credentials are redacted before anything is written.
+        self.debug_enabled = False
+        self._debug_path = None
+        self._debug_lock = threading.Lock()
 
     # ---- frontend helpers -------------------------------------------------
 
@@ -232,15 +289,57 @@ class Api:
     def _log(self, device_id, text, level="out"):
         self._emit("log", {"deviceId": device_id, "text": text, "level": level})
 
+    # ---- debug log --------------------------------------------------------
+
+    def _redact(self, text):
+        """Never let a live password reach the debug file."""
+        s = str(text)
+        for sess in self.sessions.values():
+            pw = getattr(sess, "password", None)
+            if pw:
+                s = s.replace(pw, "[redacted]")
+        return s
+
+    def _debug(self, msg):
+        """Append a timestamped line to the run's debug file when enabled.
+        No-op when the toggle is off, so callers can sprinkle it freely."""
+        if not self.debug_enabled:
+            return
+        with self._debug_lock:
+            if not self._debug_path:
+                stamp = time.strftime("%m%d%Y_%H%M%S")
+                self._debug_path = os.path.join(app_dir(), f"Debug_Log_{stamp}.txt")
+            line = f"[{time.strftime('%H:%M:%S')}] {self._redact(msg)}\n"
+            try:
+                with open(self._debug_path, "a", encoding="utf-8") as f:
+                    f.write(line)
+            except Exception:
+                pass
+
     # ---- misc -------------------------------------------------------------
 
     def get_config(self):
         return {
             "devices": load_devices(),
             "author": AUTHOR_URL,
+            "version": APP_VERSION,
             "maxConnections": MAX_CONNECTIONS,
             "maxPinned": MAX_PINNED,
         }
+
+    def set_debug(self, enabled):
+        """Turn the debug log on or off. Returns the file name when on so the
+        UI can show where it writes."""
+        self.debug_enabled = bool(enabled)
+        if self.debug_enabled:
+            self._debug("Debug logging enabled.")
+            name = os.path.basename(self._debug_path) if self._debug_path else None
+            return {"ok": True, "enabled": True, "file": name}
+        return {"ok": True, "enabled": False}
+
+    def check_update(self):
+        """Manual or startup update check. Quiet (ok False) on any failure."""
+        return check_for_update()
 
     def open_url(self, url):
         # Used by the GitHub link to open in the user's real browser.
@@ -303,11 +402,14 @@ class Api:
         try:
             sess.connect()
         except paramiko.AuthenticationException:
+            self._debug(f"Auth failed for {device['username']}@{device['host']}.")
             return {"ok": False, "error": "Authentication failed. Check username and password."}
         except Exception as e:
+            self._debug(f"Connect error to {device['host']}: {e}")
             return {"ok": False, "error": f"Could not connect: {e}"}
 
         self.sessions[device_id] = sess
+        self._debug(f"Connected to {device['host']} as {device['username']}.")
         self._log(device_id, f"Connected to {device['host']} as {device['username']}.", "ok")
         return {"ok": True}
 
@@ -315,6 +417,7 @@ class Api:
         sess = self.sessions.pop(device_id, None)
         if sess:
             sess.close()
+            self._debug(f"Disconnected {device_id}.")
             self._log(device_id, "Disconnected. Password cleared from memory.", "muted")
         self._emit("status", {"deviceId": device_id, "state": "idle"})
         return {"ok": True}
@@ -398,6 +501,7 @@ class Api:
 
         self._emit("status", {"deviceId": device_id, "state": "running"})
         self._log(device_id, f"$ {label}", "cmd")
+        self._debug(f"[{device_id}] run: {label}")
         sess.busy = True
         sess.cancelled = False
         try:
@@ -447,15 +551,20 @@ class Api:
                     self._log(device_id, ln, "err")
 
             if sess.cancelled:
+                self._debug(f"[{device_id}] {label} cancelled")
                 self._log(device_id, f"\u25a0 {label} cancelled.", "warn")
             elif code == 0:
+                self._debug(f"[{device_id}] {label} exit=0")
                 self._log(device_id, f"\u2713 {label} finished.", "ok")
             else:
+                self._debug(f"[{device_id}] {label} exit={code}")
                 self._log(device_id, f"\u2717 {label} exited with code {code}.", "err")
         except Exception as e:
             if sess and sess.cancelled:
+                self._debug(f"[{device_id}] {label} cancelled")
                 self._log(device_id, f"\u25a0 {label} cancelled.", "warn")
             else:
+                self._debug(f"[{device_id}] {label} error: {e}")
                 self._log(device_id, f"Error: {e}", "err")
         finally:
             sess.busy = False
@@ -478,18 +587,39 @@ def main():
     except Exception:
         pass
 
-    # pyi_splash exists only inside the onefile frozen build; ignore otherwise.
+    # pyi_splash exists only in the frozen build (PyInstaller --splash). In a
+    # source run the import fails and all the splash logic below does nothing.
     try:
         import pyi_splash  # type: ignore
     except Exception:
         pyi_splash = None
 
-    def close_splash():
+    splash_start = time.time()
+    splash_closed = threading.Event()
+
+    def _close_now():
+        if splash_closed.is_set():
+            return
+        splash_closed.set()
         if pyi_splash:
             try:
                 pyi_splash.close()
             except Exception:
                 pass
+
+    def close_splash():
+        # Hold the splash for a 5-second minimum so a fast start does not just
+        # flash, then close on a background thread so the UI is never blocked.
+        if splash_closed.is_set():
+            return
+        remaining = 5.0 - (time.time() - splash_start)
+        if remaining > 0:
+            threading.Thread(
+                target=lambda: (time.sleep(remaining), _close_now()),
+                daemon=True,
+            ).start()
+        else:
+            _close_now()
 
     api = Api()
     html_path = resource_path("simple_ssh_tool-UI.html")
@@ -517,14 +647,15 @@ def main():
         api.frontend_ready = True
         close_splash()
 
-    # Safety net: close the splash even if the loaded event never fires.
+    # Safety net: close the splash even if the loaded event never fires. The
+    # ~30s ceiling means it can never hang on screen.
     if pyi_splash:
         threading.Thread(
-            target=lambda: (time.sleep(25), close_splash()),
+            target=lambda: (time.sleep(30), _close_now()),
             daemon=True,
         ).start()
 
-    # Qt (PyQt6 + WebEngine) backend avoids the slow WinForms/WebView2 startup.
+    # Qt backend (PySide6 + WebEngine) avoids the slow WinForms/WebView2 start.
     # icon= sets the live window/taskbar icon on Qt. Guarded so an older
     # pywebview without the icon parameter still starts.
     try:
