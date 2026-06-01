@@ -528,7 +528,7 @@ def main():
     # icon= sets the live window/taskbar icon on Qt. Guarded so an older
     # pywebview without the icon parameter still starts.
     try:
-        webview.start(gui='qt', icon=resource_path('icon.png'))
+        webview.start(gui='qt', icon=resource_path('simple_ssh_tool.png'))
     except TypeError:
         webview.start(gui='qt')
 
