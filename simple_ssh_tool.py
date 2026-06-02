@@ -19,6 +19,8 @@ import re
 import sys
 import json
 import time
+import base64
+import hashlib
 import threading
 import webbrowser
 import urllib.request
@@ -94,6 +96,42 @@ def resource_path(name):
 
 
 DEVICES_FILE = os.path.join(app_dir(), "devices.json")
+KNOWN_HOSTS_FILE = os.path.join(app_dir(), "known_hosts")
+
+
+# ----------------------------------------------------------------------------
+# Host-key trust (trust-on-first-use). Keys are pinned the first time you
+# accept a host; a later key change is flagged loudly and never auto-trusted.
+# ----------------------------------------------------------------------------
+
+def fingerprint_sha256(key):
+    """OpenSSH-style SHA256 fingerprint, e.g. 'SHA256:abc...' (no padding)."""
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def load_known_hosts():
+    hk = paramiko.HostKeys()
+    if os.path.exists(KNOWN_HOSTS_FILE):
+        try:
+            hk.load(KNOWN_HOSTS_FILE)
+        except Exception:
+            pass
+    return hk
+
+
+class UnknownHostKey(Exception):
+    """Raised on first contact with a host whose key we have not pinned."""
+    def __init__(self, hostname, key):
+        super().__init__("unknown host key")
+        self.hostname = hostname
+        self.key = key
+
+
+class _TofuPolicy(paramiko.MissingHostKeyPolicy):
+    """Do not auto-add. Surface the offered key so the UI can ask the user."""
+    def missing_host_key(self, client, hostname, key):
+        raise UnknownHostKey(hostname, key)
 
 
 # ----------------------------------------------------------------------------
@@ -225,7 +263,14 @@ class Session:
 
     def connect(self):
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        if os.path.exists(KNOWN_HOSTS_FILE):
+            try:
+                client.load_host_keys(KNOWN_HOSTS_FILE)
+            except Exception:
+                pass
+        # Trust on first use: unknown hosts raise UnknownHostKey (user is asked),
+        # a changed key raises paramiko.BadHostKeyException (flagged, not trusted).
+        client.set_missing_host_key_policy(_TofuPolicy())
         client.connect(
             hostname=self.device["host"],
             username=self.device["username"],
@@ -264,6 +309,7 @@ class Session:
 class Api:
     def __init__(self):
         self.sessions = {}  # device_id -> Session
+        self._pending_host_keys = {}  # device_id -> (host, offered_key) awaiting user trust
         self.window = None
         self.frontend_ready = False  # set True by main() when page is loaded
         # Debug log: off by default. When on, one file per run sits next to the
@@ -401,6 +447,30 @@ class Api:
         sess = Session(device, password)
         try:
             sess.connect()
+        except UnknownHostKey as e:
+            # First contact: stash the offered key and ask the UI to confirm.
+            self._pending_host_keys[device_id] = (e.hostname, e.key)
+            self._debug(f"Unknown host key for {device['host']} ({e.key.get_name()}).")
+            return {
+                "ok": False,
+                "host_key_unknown": True,
+                "host": device["host"],
+                "key_type": e.key.get_name(),
+                "fingerprint": fingerprint_sha256(e.key),
+            }
+        except paramiko.BadHostKeyException as e:
+            # Pinned key changed: never auto-trust. Offer the new key for an
+            # explicit, deliberate replace only.
+            self._pending_host_keys[device_id] = (device["host"], e.key)
+            self._debug(f"HOST KEY CHANGED for {device['host']} - refused.")
+            return {
+                "ok": False,
+                "host_key_changed": True,
+                "host": device["host"],
+                "key_type": e.key.get_name(),
+                "new_fingerprint": fingerprint_sha256(e.key),
+                "old_fingerprint": fingerprint_sha256(e.expected_key),
+            }
         except paramiko.AuthenticationException:
             self._debug(f"Auth failed for {device['username']}@{device['host']}.")
             return {"ok": False, "error": "Authentication failed. Check username and password."}
@@ -408,10 +478,51 @@ class Api:
             self._debug(f"Connect error to {device['host']}: {e}")
             return {"ok": False, "error": f"Could not connect: {e}"}
 
+        self._pending_host_keys.pop(device_id, None)
         self.sessions[device_id] = sess
         self._debug(f"Connected to {device['host']} as {device['username']}.")
         self._log(device_id, f"Connected to {device['host']} as {device['username']}.", "ok")
         return {"ok": True}
+
+    def trust_host_key(self, device_id):
+        """Pin the host key the user just confirmed, then they may reconnect."""
+        pending = self._pending_host_keys.pop(device_id, None)
+        if not pending:
+            return {"ok": False, "error": "No host key is waiting to be trusted."}
+        host, key = pending
+        try:
+            hk = load_known_hosts()
+            if hk.lookup(host):          # replace any prior key for this host
+                del hk[host]
+            hk.add(host, key.get_name(), key)
+            hk.save(KNOWN_HOSTS_FILE)
+            self._debug(f"Trusted host key for {host} ({key.get_name()}).")
+            return {"ok": True, "host": host, "fingerprint": fingerprint_sha256(key)}
+        except Exception as e:
+            return {"ok": False, "error": f"Could not save the host key: {e}"}
+
+    def get_host_key(self, host):
+        """Return the pinned key(s) for a host so the UI can show them."""
+        host = (host or "").strip()
+        sub = load_known_hosts().lookup(host) if host else None
+        if not sub:
+            return {"known": False, "host": host}
+        entries = [{"key_type": kt, "fingerprint": fingerprint_sha256(k)}
+                   for kt, k in sub.items()]
+        return {"known": True, "host": host, "entries": entries}
+
+    def forget_host_key(self, host):
+        """Remove a pinned host key (e.g. before deliberately re-trusting)."""
+        host = (host or "").strip()
+        try:
+            hk = load_known_hosts()
+            if hk.lookup(host):
+                del hk[host]
+                hk.save(KNOWN_HOSTS_FILE)
+                self._debug(f"Forgot host key for {host}.")
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": f"Could not remove the host key: {e}"}
 
     def disconnect(self, device_id):
         sess = self.sessions.pop(device_id, None)

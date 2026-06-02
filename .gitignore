@@ -1,6 +1,9 @@
 # Runtime data (maps your internal hosts/usernames - keep private)
 devices.json
 
+# Pinned SSH host keys (trust-on-first-use store)
+known_hosts
+
 # PyInstaller build artifacts
 build/
 dist/
