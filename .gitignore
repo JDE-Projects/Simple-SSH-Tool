@@ -18,3 +18,6 @@ Launch_*.bat
 
 # Optional debug logs (written next to the exe when toggled on)
 Debug_Log_*.txt
+
+# Console export files written next to the exe
+*_Console_*.txt
