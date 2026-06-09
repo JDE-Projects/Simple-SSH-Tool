@@ -68,3 +68,5 @@ This project was built with AI assistance. The design decisions, feature directi
 ## License
 
 Released under the [PolyForm Noncommercial License 1.0.0](LICENSE): personal and noncommercial use, modification, and noncommercial redistribution are permitted; commercial use is not. Keep the copyright notice; no warranty. The tool bundles third-party code (PySide6/Qt and Paramiko, both LGPL) and fonts; their notices are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
+
+For commercial licensing, open a [GitHub issue](https://github.com/JDE-Projects/Simple-SSH-Tool/issues) with the title "Commercial License Inquiry".
