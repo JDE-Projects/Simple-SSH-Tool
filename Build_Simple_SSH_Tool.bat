@@ -12,12 +12,33 @@ REM  swappable files beside the exe, which satisfies LGPL for a
 REM  closed-source build.
 REM ============================================================
 
+cd /d "%~dp0"
+
+REM --- skip interactive pauses when running in CI (GitHub Actions sets CI) ---
+set "PAUSE=pause"
+if defined CI set "PAUSE="
+
 echo.
 REM Force qtpy/pywebview to use PySide6 (in case PyQt6 is still installed)
 set QT_API=pyside6
 
-echo Installing dependencies ...
-pip install pyinstaller pywebview PySide6 paramiko
+REM --- check Python ---
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python is not installed or not in PATH.
+    echo Install Python 3 from https://python.org and tick "Add Python to PATH".
+    %PAUSE%
+    exit /b 1
+)
+
+echo Installing pinned dependencies from requirements.txt ...
+python -m pip install --upgrade pip >nul
+python -m pip install -r requirements.txt
+if errorlevel 1 (
+    echo ERROR: Failed to install dependencies from requirements.txt.
+    %PAUSE%
+    exit /b 1
+)
 
 echo.
 echo Building Simple SSH Tool ...
@@ -47,4 +68,4 @@ if exist "dist\Simple SSH Tool\Simple SSH Tool.exe" (
     echo ============================================================
 )
 echo.
-pause
+%PAUSE%

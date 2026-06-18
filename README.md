@@ -25,15 +25,31 @@ Grab the latest `Simple SSH Tool` zip from the [Releases](../../releases) page, 
 
 Because it is unsigned, Windows SmartScreen may warn about an unknown publisher the first time. Click **More info > Run anyway**.
 
+## Verify this download (optional)
+
+This release was built on GitHub from this public source - not on a personal
+machine - and is signed with a build-provenance attestation. To confirm a
+download is genuine, install the [GitHub CLI](https://cli.github.com) and run:
+
+```
+gh attestation verify SimpleSSHTool-vX.Y.Z.zip \
+  --repo JDE-Projects/Simple-SSH-Tool \
+  --signer-repo JDE-Projects/Build-Tools
+```
+
+A `Verification succeeded!` line means the file was built by the published
+pipeline from this repo. You can also check the file against the published
+`.sha256`.
+
 ## Build from source (optional)
 
 If you would rather run or build it yourself, you need:
 
 - **Python 3** on the machine's PATH.
-- Python packages: `pywebview`, `PySide6`, `paramiko`. Keep `PyQt6` uninstalled so PySide6 is the binding that gets bundled.
+- Python packages, pinned in `requirements.txt` (`pywebview`, `PySide6`, `paramiko`, plus Paramiko's crypto deps and PyInstaller). Keep `PyQt6` uninstalled so PySide6 is the binding that gets bundled.
 
 ```
-pip install pywebview PySide6 paramiko
+pip install -r requirements.txt
 ```
 
 Keep these together so the app finds them next to itself: `simple_ssh_tool.py`, `simple_ssh_tool-UI.html`, the `fonts/` folder, `simple_ssh_tool.ico`, `simple_ssh_tool.png`, and `simple_ssh_tool-splash.png`. Then either:
