@@ -4,6 +4,8 @@ A small, standalone Windows desktop tool to connect to your machines over SSH an
 
 Built by [JDE-Projects](https://github.com/JDE-Projects).
 
+If you enjoyed this project and would like to buy me a coffee, check out my [Ko-fi](https://ko-fi.com/jdeprojects).
+
 ## Highlights
 
 - **Per-device command library.** Build named commands for each device, mark some with sudo or a confirm prompt, pin up to 10 as quick buttons, and copy a command to another saved device.
