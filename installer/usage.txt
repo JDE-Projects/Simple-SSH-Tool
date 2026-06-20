@@ -1,0 +1,3 @@
+Click Add Device, then enter the host or IP and the username.
+Type the password and click Connect to open a console tab.
+Run your saved commands and pinned quick buttons, or type a one-off command.

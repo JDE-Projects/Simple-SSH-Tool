@@ -35,7 +35,7 @@ AUTHOR_URL = "https://github.com/JDE-Projects"
 
 # Version of record. Equals the latest published release tag (without the v).
 # Bumping this is the first step of shipping a build.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 # Update check targets this repo's Releases. The endpoint returns 404 while the
 # repo is private, so the check simply stays quiet until the repo is public.
