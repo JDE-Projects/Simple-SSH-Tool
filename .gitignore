@@ -4,6 +4,9 @@ devices.json
 # Pinned SSH host keys (trust-on-first-use store)
 known_hosts
 
+# Theme preference file
+*.pref
+
 # PyInstaller build artifacts
 build/
 dist/
