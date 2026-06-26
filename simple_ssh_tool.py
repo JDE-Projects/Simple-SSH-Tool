@@ -35,7 +35,7 @@ AUTHOR_URL = "https://github.com/JDE-Projects"
 
 # Version of record. Equals the latest published release tag (without the v).
 # Bumping this is the first step of shipping a build.
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 # Update check targets this repo's Releases. The endpoint returns 404 while the
 # repo is private, so the check simply stays quiet until the repo is public.
@@ -223,29 +223,30 @@ def _version_tuple(v):
 
 
 def check_for_update():
-    """Ask GitHub for the latest release tag and compare to APP_VERSION.
-    Returns a small dict; never raises. Quiet when offline or while the repo
-    is private (the endpoint returns 404 until it is public)."""
-    api_url = (
-        f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-    )
-    req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+    """Compare the latest GitHub release tag to APP_VERSION. Quiet when
+    offline or while the repo is private (404). Never raises to the UI."""
+    url = (f"https://api.github.com/repos/{GITHUB_OWNER}/"
+           f"{GITHUB_REPO}/releases/latest")
     try:
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace"))
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Simple-SSH-Tool",
+        })
+        with urllib.request.urlopen(req, timeout=6) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        tag = (data.get("tag_name") or "").lstrip("v")
+        if tag and _version_tuple(tag) > _version_tuple(APP_VERSION):
+            return {
+                "ok": True, "update": True, "version": tag,
+                "current": APP_VERSION,
+                "url": data.get("html_url") or RELEASES_URL,
+            }
+        return {"ok": True, "update": False, "current": APP_VERSION}
+    except urllib.error.HTTPError:
+        return {"ok": True, "update": False, "current": APP_VERSION}
     except Exception:
-        return {"ok": False}  # offline, private repo (404), rate-limited, etc.
-    latest = (data.get("tag_name") or "").strip()
-    if not latest:
-        return {"ok": False}
-    newer = _version_tuple(latest) > _version_tuple(APP_VERSION)
-    return {
-        "ok": True,
-        "current": APP_VERSION,
-        "latest": latest.lstrip("vV"),
-        "newer": newer,
-        "url": data.get("html_url") or RELEASES_URL,
-    }
+        return {"ok": True, "update": False, "current": APP_VERSION,
+                "offline": True}
 
 
 # ----------------------------------------------------------------------------
@@ -372,6 +373,29 @@ class Api:
             "maxConnections": MAX_CONNECTIONS,
             "maxPinned": MAX_PINNED,
         }
+
+    # ---- theme persistence --------------------------------------------------
+
+    def _pref_path(self):
+        return os.path.join(app_dir(), "simple_ssh_tool.pref")
+
+    def get_theme(self):
+        try:
+            with open(self._pref_path(), "r", encoding="utf-8") as f:
+                theme = json.load(f).get("theme")
+            return theme if theme in ("dark", "light") else "dark"
+        except Exception:
+            return "dark"
+
+    def save_theme(self, theme):
+        if theme not in ("dark", "light"):
+            return {"ok": False}
+        try:
+            with open(self._pref_path(), "w", encoding="utf-8") as f:
+                json.dump({"theme": theme}, f)
+            return {"ok": True}
+        except Exception:
+            return {"ok": False}
 
     def set_debug(self, enabled):
         """Turn the debug log on or off. Returns the file name when on so the
