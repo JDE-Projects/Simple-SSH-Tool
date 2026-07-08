@@ -38,10 +38,19 @@ Two ways to get it from the [Releases](../../releases) page - pick one:
 
 Windows only, no Python or setup required. Unsigned, so SmartScreen may warn the first time: **More info > Run anyway**.
 
+## Updating
+
+Simple SSH Tool doesn't update itself. The bottom bar has a **Check for updates** button that tells you when a newer release is out; when it does, get the new version from the [Releases](../../releases) page the same way you first installed it.
+
+- **Installer:** download the new `SimpleSSHTool-vX.Y.Z-setup.exe` and run it. It installs over your current copy and keeps your saved devices and theme choice.
+- **Portable .zip:** download and extract the new `SimpleSSHTool-vX.Y.Z.zip`. To keep your saved devices, copy `devices.json`, `known_hosts`, and the theme `.pref` file (if present) from the old folder into the new one.
+
+Your SSH passwords are never stored, so there's nothing else to carry over.
+
 ## Verify this download (optional)
 
-This release was built on GitHub from this public source - not on a personal
-machine - and is signed with a build-provenance attestation. To confirm a
+This release was built on GitHub from this public source, not on a personal
+machine, and is signed with a build-provenance attestation. To confirm your
 download is genuine, install the [GitHub CLI](https://cli.github.com) and run:
 
 ```
@@ -53,15 +62,6 @@ gh attestation verify SimpleSSHTool-vX.Y.Z.zip \
 A `Verification succeeded!` line means the file was built by the published
 pipeline from this repo. You can also check the file against the published
 `.sha256`.
-
-## Updating
-
-Simple SSH Tool doesn't update itself. The bottom bar has a **Check for updates** button that tells you when a newer release is out; when it does, get the new version from the [Releases](../../releases) page the same way you first installed it.
-
-- **Installer:** download the new `SimpleSSHTool-vX.Y.Z-setup.exe` and run it. It installs over your current copy and keeps your saved devices and theme choice.
-- **Portable .zip:** download and extract the new `SimpleSSHTool-vX.Y.Z.zip`. To keep your saved devices, copy `devices.json`, `known_hosts`, and the theme `.pref` file (if present) from the old folder into the new one.
-
-Your SSH passwords are never stored, so there's nothing else to carry over.
 
 ## Build from source (optional)
 
