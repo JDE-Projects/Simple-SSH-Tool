@@ -96,7 +96,7 @@ Keep these together so the app finds them next to itself: `simple_ssh_tool.py`, 
 ## Security and privacy
 
 - The SSH password is never written to disk.
-- `devices.json` holds only the name, host, username, and your saved commands. Keep it out of source control, since it maps your internal hosts and accounts.
+- `devices.json` holds only the name, host, username, and your saved commands. Treat it as sensitive: it maps your internal hosts and accounts, so don't share it publicly (in a bug report, forum post, or public repo).
 - The debug log, when enabled, redacts the password before writing.
 
 ## A note on how this was built
