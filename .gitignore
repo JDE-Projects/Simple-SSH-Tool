@@ -15,6 +15,8 @@ dist/
 # Python
 __pycache__/
 *.pyc
+.venv/
+.ruff_cache/
 
 # Personal local launcher (not for distribution)
 Launch_*.bat
