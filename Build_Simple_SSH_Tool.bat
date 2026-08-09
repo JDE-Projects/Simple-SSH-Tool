@@ -52,6 +52,7 @@ pyinstaller --noconfirm --onedir --windowed ^
   --icon "simple_ssh_tool.ico" ^
   --collect-all PySide6 ^
   --collect-all qtpy ^
+  --hidden-import truststore ^
   --name "Simple SSH Tool" ^
   simple_ssh_tool.py
 

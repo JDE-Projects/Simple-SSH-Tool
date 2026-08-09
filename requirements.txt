@@ -6,6 +6,7 @@ pywebview==6.2.1
 PySide6==6.11.1
 qtpy==2.4.3
 pyinstaller==6.21.0
+truststore==0.10.4
 
 # SSH transport. cryptography, bcrypt, and PyNaCl are Paramiko's crypto deps
 # (bundled in the build); pinned so the shipped binaries are reproducible.

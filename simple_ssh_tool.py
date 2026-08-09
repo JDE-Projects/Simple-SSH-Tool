@@ -21,6 +21,9 @@ import json
 import time
 import base64
 import ctypes
+import errno
+import socket
+import ssl
 import ctypes.wintypes as wintypes
 import hashlib
 import threading
@@ -37,7 +40,7 @@ AUTHOR_URL = "https://github.com/JDE-Projects"
 
 # Version of record. Equals the latest published release tag (without the v).
 # Bumping this is the first step of shipping a build.
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 
 # Update check targets this repo's Releases. The endpoint returns 404 while the
 # repo is private, so the check simply stays quiet until the repo is public.
@@ -154,18 +157,59 @@ def save_prefs(prefs: dict) -> bool:
 
 def _win32():
     u = ctypes.windll.user32
-    u.FindWindowW.restype = wintypes.HWND
-    u.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
     u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                ctypes.c_int, ctypes.c_int, wintypes.UINT]
     return u
 
 
+def _own_window_handle(title):
+    """HWND of our own top-level window with this title."""
+    try:
+        u = ctypes.windll.user32
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        u.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+        u.EnumWindows.restype = wintypes.BOOL
+        u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        u.GetWindowThreadProcessId.restype = wintypes.DWORD
+        u.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        u.GetWindowTextLengthW.restype = ctypes.c_int
+        u.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        u.GetWindowTextW.restype = ctypes.c_int
+        u.IsWindowVisible.argtypes = [wintypes.HWND]
+        u.IsWindowVisible.restype = wintypes.BOOL
+
+        own_pid = os.getpid()
+        found = {"hwnd": None}
+
+        def _callback(hwnd, lparam):
+            if not u.IsWindowVisible(hwnd):
+                return True
+            pid = wintypes.DWORD()
+            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value != own_pid:
+                return True
+            length = u.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            u.GetWindowTextW(hwnd, buf, length + 1)
+            if buf.value != title:
+                return True
+            found["hwnd"] = hwnd
+            return False
+
+        proc = WNDENUMPROC(_callback)
+        u.EnumWindows(proc, 0)
+        return found["hwnd"]
+    except Exception:
+        return None
+
+
 def _save_geometry(win) -> None:
     try:
         u = _win32()
-        hwnd = u.FindWindowW(None, win.title)
+        hwnd = _own_window_handle(win.title)
         if not hwnd:
             return
         r = wintypes.RECT()
@@ -202,7 +246,7 @@ def _restore_geometry(win) -> None:
         if not user32.MonitorFromPoint(point, 0):   # MONITOR_DEFAULTTONULL
             return
         u = _win32()
-        hwnd = u.FindWindowW(None, win.title)
+        hwnd = _own_window_handle(win.title)
         if not hwnd:
             return
         SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
@@ -300,7 +344,7 @@ def save_devices(devices):
 
 
 # ----------------------------------------------------------------------------
-# Update check (GitHub Releases, stdlib only, silent on any failure)
+# Update check (GitHub Releases, stdlib only)
 # ----------------------------------------------------------------------------
 
 def _version_tuple(v):
@@ -313,9 +357,52 @@ def _version_tuple(v):
     return tuple(parts) or (0,)
 
 
-def check_for_update():
-    """Compare the latest GitHub release tag to APP_VERSION. Quiet when
-    offline or while the repo is private (404). Never raises to the UI."""
+def _update_error_reason(exc: BaseException) -> str:
+    """Return a plain-language explanation for an update-check failure."""
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 403:
+            return "GitHub is rate-limiting update checks from this network. Try again later."
+        if exc.code == 404:
+            return "No published release was found."
+        if 500 <= exc.code < 600:
+            return f"GitHub is having trouble on its end (HTTP {exc.code})."
+        return f"GitHub returned an error (HTTP {exc.code})."
+
+    if isinstance(exc, json.JSONDecodeError):
+        return (
+            "GitHub returned something unexpected. This often means a proxy "
+            "or a guest wifi sign-in page answered instead."
+        )
+
+    is_url_error = isinstance(exc, urllib.error.URLError)
+    cause = exc.reason if is_url_error and exc.reason is not None else exc
+
+    if isinstance(cause, ssl.SSLCertVerificationError):
+        return (
+            "GitHub's certificate could not be verified. This usually means "
+            "antivirus or a network filter is inspecting HTTPS traffic."
+        )
+    if isinstance(cause, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
+        return "The secure connection was cut off during the handshake with GitHub."
+    if isinstance(cause, ssl.SSLError):
+        return "The secure connection to GitHub failed."
+    if isinstance(cause, socket.gaierror):
+        return "The address for api.github.com could not be looked up. Check DNS or the internet connection."
+    if isinstance(cause, (socket.timeout, TimeoutError)):
+        return "GitHub didn't respond in time."
+    if isinstance(cause, (ConnectionRefusedError, ConnectionResetError)):
+        return "The connection was refused or reset. A firewall or proxy may be blocking it."
+    if isinstance(cause, OSError) and getattr(cause, "errno", None) == errno.ENETUNREACH:
+        return "No network connection."
+    if is_url_error:
+        return "Couldn't reach GitHub. Check the internet connection."
+
+    text = f"{type(exc).__name__}: {exc}"
+    return text if len(text) <= 120 else text[:117] + "..."
+
+
+def check_for_update(log=None):
+    """Compare the latest GitHub release tag to APP_VERSION without raising."""
     url = (f"https://api.github.com/repos/{GITHUB_OWNER}/"
            f"{GITHUB_REPO}/releases/latest")
     try:
@@ -323,21 +410,30 @@ def check_for_update():
             "Accept": "application/vnd.github+json",
             "User-Agent": "Simple-SSH-Tool",
         })
-        with urllib.request.urlopen(req, timeout=6) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:
             data = json.loads(r.read().decode("utf-8"))
         tag = (data.get("tag_name") or "").lstrip("v")
         if tag and _version_tuple(tag) > _version_tuple(APP_VERSION):
-            return {
+            result = {
                 "ok": True, "update": True, "version": tag,
                 "current": APP_VERSION,
                 "url": data.get("html_url") or RELEASES_URL,
             }
-        return {"ok": True, "update": False, "current": APP_VERSION}
-    except urllib.error.HTTPError:
-        return {"ok": True, "update": False, "current": APP_VERSION}
-    except Exception:
-        return {"ok": True, "update": False, "current": APP_VERSION,
-                "offline": True}
+        else:
+            result = {"ok": True, "update": False, "current": APP_VERSION}
+        if log:
+            log(f"check_update: found v{tag}, current v{APP_VERSION}")
+        return result
+    except Exception as exc:
+        if log:
+            log(f"check_update failed: {type(exc).__name__}: {exc}")
+        return {
+            "ok": True,
+            "update": False,
+            "current": APP_VERSION,
+            "offline": True,
+            "reason": _update_error_reason(exc),
+        }
 
 
 # ----------------------------------------------------------------------------
@@ -491,8 +587,8 @@ class Api:
         return {"ok": True, "enabled": False}
 
     def check_update(self):
-        """Manual or startup update check. Quiet (ok False) on any failure."""
-        return check_for_update()
+        """Manual or startup update check, including a safe failure reason."""
+        return check_for_update(self._debug)
 
     def open_url(self, url):
         # Used by the GitHub link to open in the user's real browser.
@@ -821,6 +917,12 @@ def _prompt_second_instance(app_title: str) -> bool:
         return True   # fail open: if the box can't be shown, launch proceeds
 
 def main():
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:
+        pass
+
     if not _acquire_single_instance("JDE_SimpleSSHTool_SingleInstance"):
         if not _prompt_second_instance(APP_NAME):
             sys.exit(0)

@@ -42,6 +42,11 @@ pywebview
   License: BSD-3-Clause
   https://github.com/r0x0r/pywebview
 
+truststore
+  Copyright 2022 Seth Michael Larson
+  License: MIT
+  https://github.com/sethmlarson/truststore
+
 ----------------------------------------------------------------------
 Bundled fonts
 ----------------------------------------------------------------------
